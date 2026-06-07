@@ -6,6 +6,130 @@ API REST para el sistema de Credenciales Digitales de la Iglesia Cristiana Bíbl
 
 ---
 
+## Despliegue a Producción
+
+Guía paso a paso para desplegar la API en un servidor Apache con PHP 8.4+.
+
+### Requisitos del servidor
+
+- **PHP 8.4+** con extensiones: `pdo_mysql`, `mbstring`, `json`, `bcmath`
+- **MySQL 8+ / MariaDB 10+**
+- **Composer 2**
+- **Apache** con `mod_rewrite` habilitado
+- **SSH** para acceso remoto (Hostinger, DigitalOcean, etc.)
+
+### Estructura en producción
+
+A diferencia del entorno local (donde el Document Root apunta a `public/`), en producción **los archivos van en la raíz del proyecto**:
+
+```
+📁 /tu-sitio/icb/
+├── .env              # Credenciales reales (NUNCA subir a git)
+├── .htaccess         # Front Controller Pattern + bloqueo de archivos sensibles
+├── index.php         # Front Controller (Apache rewrite vía .htaccess)
+├── swagger.php       # Documentación interactiva con Basic Auth
+├── openapi.json      # Especificación OpenAPI
+├── src/              # Código fuente
+├── vendor/           # Dependencias (Composer)
+├── config/           # Configuración de Doctrine
+├── bin/              # Scripts de consola (migrations, seed)
+└── images/sellos/    # Uploads de sellos institucionales
+```
+
+> **Importante**: No existe carpeta `public/` en producción. Apache sirve `index.php` directamente desde la raíz.
+
+### Pasos de instalación
+
+```bash
+# 1. Acceder al servidor vía SSH
+ssh usuario@tuservidor.com -p 65002
+
+# 2. Navegar al directorio del proyecto
+cd ~/domains/tusitio.com/public_html/icb
+
+# 3. Instalar dependencias (SIN dev, con autoloader optimizado)
+composer install --no-dev --optimize-autoloader
+
+# 4. Configurar variables de entorno
+cp .env.example .env
+nano .env
+# Editar al menos: DB_NAME, DB_USER, DB_PASS, JWT_SECRET, APP_ENV=prod
+```
+
+**Variables de entorno obligatorias en producción:**
+
+| Variable | Ejemplo | Descripción |
+|----------|---------|-------------|
+| `DB_HOST` | `127.0.0.1` | Host de la base de datos |
+| `DB_NAME` | `credenciales_digitales` | Nombre de la base de datos |
+| `DB_USER` | `u123456_miuser` | Usuario con prefijo del hosting |
+| `DB_PASS` | `••••••••` | Contraseña de la base de datos |
+| `JWT_SECRET` | `••••••••` | Clave secreta para firmar tokens JWT |
+| `APP_ENV` | `prod` | `prod` oculta información sensible |
+| `CORS_ORIGIN` | `https://misitio.com` | Origen permitido (vacío = mismo origen) |
+| `SWAGGER_USER` | `miuser` | Usuario para acceder a Swagger UI |
+| `SWAGGER_PASS` | `••••••••` | Contraseña para Swagger UI |
+
+```bash
+# 5. Ejecutar migraciones de base de datos
+php bin/doctrine migrations:migrate
+
+# 6. (Opcional) Sembrar usuario inicial
+# Si es la primera vez, crear un usuario administrador:
+php bin/seed_icbsw.php
+
+# 7. Generar especificación OpenAPI
+./vendor/bin/openapi src/Docs -o openapi.json
+
+# 8. Establecer permisos correctos
+find . -type f -exec chmod 644 {} \;
+find . -type d -exec chmod 755 {} \;
+chmod 755 images/sellos/
+chmod 600 .env
+```
+
+### Verificación post-despliegue
+
+```bash
+# Health check
+curl https://tusitio.com/icb/api/health
+
+# Login
+curl -X POST https://tusitio.com/icb/api/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"usuario":"icbSw","password":"Unsa@_26"}'
+
+# Swagger UI (requiere autenticación)
+# Abrir en el navegador: https://tusitio.com/icb/swagger.php
+```
+
+### Seguridad — CheckList
+
+- [ ] `APP_ENV=prod` — No muestra errores detallados ni tokens de recuperación
+- [ ] `APP_DEBUG` comentado o `false` — Errores internos se loggean con correlation ID
+- [ ] `JWT_SECRET` cambiado — NO usar el valor por defecto de desarrollo
+- [ ] `CORS_ORIGIN` configurado con el dominio exacto (vacío = mismo origen, seguro)
+- [ ] `TRUSTED_PROXIES` configurado si hay CDN/proxy adelante
+- [ ] `.env` con permisos `600` — Solo el usuario del servidor puede leerlo
+- [ ] `.htaccess` presente — Bloquea `.env`, `composer.*`, `openapi.json`
+- [ ] `openapi.json` con permisos `644` — Solo accesible vía Swagger (embebido en PHP)
+- [ ] Swagger UI protegida con Basic Auth (credenciales en `.env`)
+- [ ] `vendor/` no expuesto — Apache no lista directorios por defecto
+- [ ] Usuario `admin` por defecto eliminado — Usar el seed para crear uno nuevo
+
+### Notas para Hostinger
+
+- **Acceso SSH**: `ssh u216166114@147.93.39.13 -p 65002`
+- **Llave SSH**: Usar `~/.ssh/opencode_hostinger`
+- **Ruta del proyecto**: `~/domains/tutallerenlinea.com/public_html/icb/`
+- **Usuario DB**: Prefijado con `u216166114_` (ej: `u216166114_credigitales`)
+- **PHP**: Versión 8.4.19, configurable desde el panel de Hostinger
+- **Composer**: Disponible en `/usr/local/bin/composer`
+- **error_log**: Apache loggea errores PHP según configuración del hosting
+- **No usar `public/`**: En Hostinger la raíz del proyecto es `public_html/`, y el subdirectorio `icb/` contiene los archivos directamente
+
+---
+
 ## Requisitos
 
 - PHP 8.1+
